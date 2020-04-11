@@ -4,10 +4,8 @@ from django.core.signals import request_started
 from django.http.cookie import SimpleCookie
 from django.utils import timezone
 from django.conf import settings
-
 from easyaudit.models import RequestEvent
 from easyaudit.settings import REMOTE_ADDR_HEADER, UNREGISTERED_URLS, REGISTERED_URLS, WATCH_REQUEST_EVENTS
-
 import re
 
 
@@ -29,16 +27,17 @@ def should_log_url(url):
     # all good    
     return True
 
-
-def request_started_handler(sender, environ, **kwargs):
-    if not should_log_url(environ['PATH_INFO']):
+# Replacing environ -> scope in asgi 
+def request_started_handler(sender, scope, **kwargs):
+    if not should_log_url(scope['path']):
         return
 
     # get the user from cookies
     user = None
-    if environ.get('HTTP_COOKIE'):
+    headers = dict((x.decode('utf-8'), y.decode('utf-8')) for x, y in scope['headers'])
+    if headers.get('cookie'):
         cookie = SimpleCookie() # python3 compatibility
-        cookie.load(environ['HTTP_COOKIE'])
+        cookie.load(headers['cookie'])
 
         session_cookie_name = settings.SESSION_COOKIE_NAME
         if session_cookie_name in cookie:
@@ -57,11 +56,11 @@ def request_started_handler(sender, environ, **kwargs):
                     user = None
 
     request_event = RequestEvent.objects.create(
-        url=environ['PATH_INFO'],
-        method=environ['REQUEST_METHOD'],
-        query_string=environ['QUERY_STRING'],
+        url=scope['path'],
+        method=scope['method'],
+        query_string=scope['query_string'].decode('utf-8'),
         user_id=getattr(user, 'id', None),
-        remote_ip=environ[REMOTE_ADDR_HEADER],
+        remote_ip=scope['client'][0],
         datetime=timezone.now()
     )
 
